@@ -1,0 +1,32 @@
+# VASP outputs - large, regenerate them, don't commit
+CHG
+CHGCAR
+DOSCAR
+EIGENVAL
+PROCAR
+OUTCAR
+OSZICAR
+REPORT
+XDATCAR
+WAVECAR
+vasprun.xml
+vaspout.h5
+POTCAR
+
+# QE outputs / scratch
+*.save/
+tmp/
+CRASH
+*.out
+*.err
+*.wfc*
+
+# pseudopotentials - see README for where to get them
+*.UPF
+
+# python
+__pycache__/
+*.pyc
+
+# os
+.DS_Store

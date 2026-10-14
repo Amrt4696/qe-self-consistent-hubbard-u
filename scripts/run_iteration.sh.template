@@ -1,0 +1,67 @@
+#!/bin/bash -l
+# SLURM template for one self-consistent-U iteration. Copy this into the
+# iteration's working directory (the one containing 01_scf_smear/,
+# 02_scf_fixed/, 03_hp/ from make_usc_inputs.py), fill in the SBATCH
+# header for your own cluster/account, and submit it.
+
+#SBATCH --job-name=usc_iter
+#SBATCH --partition=<your_partition>
+#SBATCH --account=<your_account>
+#SBATCH --nodes=2
+#SBATCH --ntasks=144
+#SBATCH --ntasks-per-node=72
+#SBATCH --time=06:00:00
+#SBATCH --output=%x-%j.out
+#SBATCH --error=%x-%j.err
+
+set -euo pipefail
+module purge
+module load <your_qe_module>
+
+ROOT="${SLURM_SUBMIT_DIR}"
+PW="$(command -v pw.x || true)"
+HP="$(command -v hp.x || true)"
+[[ -n "$PW" && -x "$PW" ]] || { echo "ERROR: pw.x not found"; exit 1; }
+[[ -n "$HP" && -x "$HP" ]] || { echo "ERROR: hp.x not found"; exit 1; }
+
+export OMP_NUM_THREADS=1
+
+check_pw () {
+    local out="$1"
+    grep -q "JOB DONE" "$out" || { echo "ERROR: $out has no JOB DONE"; tail -100 "$out"; exit 1; }
+    grep -qi "convergence has been achieved" "$out" || { echo "ERROR: $out did not converge"; tail -100 "$out"; exit 1; }
+}
+
+cd "$ROOT"
+rm -rf tmp
+mkdir -p tmp
+
+# a fresh tmp/ every iteration - see notes/common_problems.md for why
+# reusing one across iterations gives you misleading U values
+
+echo "[1/3] smeared SCF started: $(date)"
+cd "$ROOT/01_scf_smear"
+rm -f CRASH scf.out
+mpirun -np 144 "$PW" -in scf.in > scf.out
+[[ ! -f CRASH ]] || { cat CRASH; exit 1; }
+check_pw scf.out
+
+echo "[2/3] fixed-occupation SCF started: $(date)"
+cd "$ROOT/02_scf_fixed"
+rm -f CRASH scf.out
+mpirun -np 144 "$PW" -in scf.in > scf.out
+[[ ! -f CRASH ]] || { cat CRASH; exit 1; }
+check_pw scf.out
+
+echo "[3/3] hp.x started: $(date)"
+cd "$ROOT/03_hp"
+rm -f CRASH hp.out *.Hubbard_parameters.dat
+mpirun -np 64 "$HP" -pd .true. -in hp.in > hp.out
+[[ ! -f CRASH ]] || { cat CRASH; exit 1; }
+grep -q "JOB DONE" hp.out || { echo "ERROR: hp.x did not finish"; tail -120 hp.out; exit 1; }
+
+echo
+echo "===== iteration finished: $(date) ====="
+echo "Hubbard_parameters.dat:"
+find . -maxdepth 1 -name "*Hubbard_parameters.dat"
+echo "Run scripts/check_convergence.py against this and the previous iteration's file."
